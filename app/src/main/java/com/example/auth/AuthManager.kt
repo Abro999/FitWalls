@@ -22,7 +22,8 @@ class AuthManager(private val context: Context) {
     suspend fun signInWithGoogle(): Result<AuthResult> {
         try {
             // Use the default web client id provided by the google-services.json plugin
-            val webClientId = context.getString(com.example.R.string.default_web_client_id)
+            val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+            val webClientId = if (resId != 0) context.getString(resId) else "YOUR_WEB_CLIENT_ID"
             
             val googleIdOption = GetSignInWithGoogleOption.Builder(webClientId)
                 .build()
