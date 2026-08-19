@@ -19,17 +19,52 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.launch
+
+import androidx.compose.material.icons.filled.Upload
+
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyItems
+import com.fitwalls.app.util.WALLPAPER_CATEGORIES
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onNavigateToGenerator: () -> Unit) {
+fun HomeScreen(onNavigateToGenerator: () -> Unit, onNavigateToUpload: () -> Unit, onNavigateToPreview: (String) -> Unit) {
     val firestoreManager = remember { FirestoreManager() }
     var wallpapers by remember { mutableStateOf<List<Wallpaper>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     
-    LaunchedEffect(Unit) {
-        wallpapers = firestoreManager.getWallpapers()
-        isLoading = false
+    var selectedCategory by remember { mutableStateOf("All") }
+    val categories = remember { listOf("All") + WALLPAPER_CATEGORIES }
+    
+    val filteredWallpapers = remember(wallpapers, selectedCategory) {
+        if (selectedCategory == "All") wallpapers else wallpapers.filter { it.style == selectedCategory }
+    }
+    
+    var userRole by remember { mutableStateOf<String?>("user") }
+    
+    val lifecycleOwner = LocalLifecycleOwner.current
+    
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isLoading = true
+                // Launch coroutine to fetch wallpapers and role
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                    wallpapers = firestoreManager.getWallpapers()
+                    userRole = firestoreManager.getUserRole()
+                    isLoading = false
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
     
     // TODO: Implement actual premium check. For now, stubbed to false.
@@ -38,7 +73,14 @@ fun HomeScreen(onNavigateToGenerator: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("FitWalls") }
+                title = { Text("FitWalls") },
+                actions = {
+                    if (userRole == "creator") {
+                        IconButton(onClick = onNavigateToUpload) {
+                            Icon(Icons.Default.Upload, contentDescription = "Upload Wallpaper")
+                        }
+                    }
+                }
             )
         },
         floatingActionButton = {
@@ -54,22 +96,40 @@ fun HomeScreen(onNavigateToGenerator: () -> Unit) {
         ) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else if (wallpapers.isEmpty()) {
-                Text(
-                    "No wallpapers yet. Be the first to generate one!",
-                    modifier = Modifier.align(Alignment.Center)
-                )
             } else {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(8.dp),
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(wallpapers) { wallpaper ->
-                            WallpaperCard(wallpaper)
+                        lazyItems(categories) { category ->
+                            FilterChip(
+                                selected = selectedCategory == category,
+                                onClick = { selectedCategory = category },
+                                label = { Text(category) }
+                            )
+                        }
+                    }
+                    
+                    if (filteredWallpapers.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                            Text(
+                                "No wallpapers in this category yet.",
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            contentPadding = PaddingValues(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            items(filteredWallpapers) { wallpaper ->
+                                WallpaperCard(wallpaper, onClick = { onNavigateToPreview(wallpaper.id) })
+                            }
                         }
                     }
                     
@@ -93,8 +153,9 @@ fun HomeScreen(onNavigateToGenerator: () -> Unit) {
 }
 
 @Composable
-fun WallpaperCard(wallpaper: Wallpaper) {
+fun WallpaperCard(wallpaper: Wallpaper, onClick: () -> Unit) {
     Card(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(9f / 16f)

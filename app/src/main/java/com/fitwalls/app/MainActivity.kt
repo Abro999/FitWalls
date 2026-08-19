@@ -33,10 +33,18 @@ import com.google.android.gms.ads.LoadAdError
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import com.razorpay.Checkout
+import com.razorpay.PaymentResultListener
+import com.fitwalls.app.util.PaymentBus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), PaymentResultListener {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    
+    Checkout.preload(applicationContext)
     
     // Initialize the Google Mobile Ads SDK
     MobileAds.initialize(this) {}
@@ -64,6 +72,18 @@ class MainActivity : ComponentActivity() {
         }
       }
     }
+  }
+
+  override fun onPaymentSuccess(razorpayPaymentId: String?) {
+      CoroutineScope(Dispatchers.Main).launch {
+          PaymentBus.onSuccess(razorpayPaymentId)
+      }
+  }
+
+  override fun onPaymentError(code: Int, response: String?) {
+      CoroutineScope(Dispatchers.Main).launch {
+          PaymentBus.onError(code, response)
+      }
   }
 }
 

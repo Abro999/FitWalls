@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -22,10 +23,15 @@ import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.rewarded.RewardedAd
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
 
+import com.fitwalls.app.util.WALLPAPER_CATEGORIES
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeneratorScreen(onNavigateBack: () -> Unit) {
     var prompt by remember { mutableStateOf("") }
+    
+    var categoryExpanded by remember { mutableStateOf(false) }
+    var selectedCategory by remember { mutableStateOf(WALLPAPER_CATEGORIES[0]) }
     var isGenerating by remember { mutableStateOf(false) }
     var generatedBase64 by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -43,6 +49,10 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
     var credits by remember { mutableIntStateOf(1) } // Start with 1 credit
     var mRewardedAd by remember { mutableStateOf<RewardedAd?>(null) }
     var isAdLoading by remember { mutableStateOf(false) }
+    
+    var isSaving by remember { mutableStateOf(false) }
+    var savedSuccessfully by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
     
     // Function to load rewarded ad
     fun loadRewardedAd() {
@@ -95,6 +105,36 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
                 minLines = 3,
                 enabled = !isGenerating
             )
+
+            ExposedDropdownMenuBox(
+                expanded = categoryExpanded,
+                onExpandedChange = { categoryExpanded = !categoryExpanded },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = selectedCategory,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Category") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                    modifier = Modifier.menuAnchor().fillMaxWidth(),
+                    enabled = !isGenerating
+                )
+                ExposedDropdownMenu(
+                    expanded = categoryExpanded,
+                    onDismissRequest = { categoryExpanded = false }
+                ) {
+                    WALLPAPER_CATEGORIES.forEach { cat ->
+                        DropdownMenuItem(
+                            text = { Text(cat) },
+                            onClick = {
+                                selectedCategory = cat
+                                categoryExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
             
             Text("Available Credits: $credits", style = MaterialTheme.typography.labelLarge)
             
@@ -103,11 +143,24 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
                     if (prompt.isNotBlank() && credits > 0) {
                         isGenerating = true
                         error = null
+                        savedSuccessfully = false
+                        saveError = null
+                        
                         scope.launch {
                             val result = geminiManager.generateWallpaper(prompt)
                             result.onSuccess { base64 ->
                                 generatedBase64 = base64
                                 credits -= 1
+                                
+                                isSaving = true
+                                val success = firestoreManager.saveGeneratedWallpaper(base64, prompt, selectedCategory)
+                                isSaving = false
+                                
+                                if (success) {
+                                    savedSuccessfully = true
+                                } else {
+                                    saveError = "Failed to upload to gallery"
+                                }
                             }.onFailure { e ->
                                 error = e.message
                             }
@@ -168,6 +221,15 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
                             .fillMaxWidth(),
                         contentScale = ContentScale.Fit
                     )
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                if (isSaving) {
+                    Text("Saving to your gallery...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else if (savedSuccessfully) {
+                    Text("Saved to your gallery ✓", style = MaterialTheme.typography.bodySmall, color = Color(0xFF4CAF50))
+                } else if (saveError != null) {
+                    Text("Error: $saveError", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
             }
         }
