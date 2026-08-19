@@ -25,10 +25,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fitwalls.app.ui.theme.*
+import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.interstitial.InterstitialAd
+import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
+import com.google.android.gms.ads.LoadAdError
+import android.util.Log
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    
+    // Initialize the Google Mobile Ads SDK
+    MobileAds.initialize(this) {}
+
     enableEdgeToEdge()
     setContent {
       FitWallsTheme {
@@ -108,6 +120,32 @@ fun Header() {
 
 @Composable
 fun HeroCard() {
+  val context = androidx.compose.ui.platform.LocalContext.current
+  val activity = context as? android.app.Activity
+  
+  // TODO: Implement actual premium check. For now, stubbed to false.
+  val isPremiumUser = false
+  
+  // Interstitial Ad Logic
+  var mInterstitialAd by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<InterstitialAd?>(null) }
+  var applyCount by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+  
+  androidx.compose.runtime.LaunchedEffect(Unit) {
+      if (!isPremiumUser) {
+          // TEST Interstitial Ad Unit ID. Replace with real AdMob Ad Unit ID before release
+          val adUnitId = "ca-app-pub-3940256099942544/1033173712"
+          val adRequest = AdRequest.Builder().build()
+          InterstitialAd.load(context, adUnitId, adRequest, object : InterstitialAdLoadCallback() {
+              override fun onAdFailedToLoad(adError: LoadAdError) {
+                  mInterstitialAd = null
+              }
+              override fun onAdLoaded(interstitialAd: InterstitialAd) {
+                  mInterstitialAd = interstitialAd
+              }
+          })
+      }
+  }
+
   Box(
     modifier = Modifier
       .fillMaxWidth()
@@ -146,7 +184,24 @@ fun HeroCard() {
         Text("by @matsuo_ai", fontSize = 14.sp, color = Color.White.copy(alpha = 0.7f))
       }
       Button(
-        onClick = { },
+        onClick = { 
+            applyCount++
+            // Show interstitial ad every 3rd apply
+            if (applyCount % 3 == 0 && mInterstitialAd != null && activity != null && !isPremiumUser) {
+                mInterstitialAd?.show(activity)
+                // Reload ad for next time
+                val adUnitId = "ca-app-pub-3940256099942544/1033173712"
+                val adRequest = AdRequest.Builder().build()
+                InterstitialAd.load(context, adUnitId, adRequest, object : InterstitialAdLoadCallback() {
+                    override fun onAdFailedToLoad(adError: LoadAdError) {
+                        mInterstitialAd = null
+                    }
+                    override fun onAdLoaded(interstitialAd: InterstitialAd) {
+                        mInterstitialAd = interstitialAd
+                    }
+                })
+            }
+        },
         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
         shape = RoundedCornerShape(percent = 50),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),

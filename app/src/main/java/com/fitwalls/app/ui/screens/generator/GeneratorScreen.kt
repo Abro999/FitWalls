@@ -17,6 +17,10 @@ import androidx.compose.ui.unit.dp
 import com.fitwalls.app.ai.GeminiManager
 import com.fitwalls.app.data.FirestoreManager
 import kotlinx.coroutines.launch
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.LoadAdError
+import com.google.android.gms.ads.rewarded.RewardedAd
+import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,6 +33,39 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val geminiManager = remember { GeminiManager() }
     val firestoreManager = remember { FirestoreManager() }
+    
+    val context = LocalContext.current
+    val activity = context as? android.app.Activity
+    
+    // TODO: Implement actual premium check. For now, stubbed to false.
+    val isPremiumUser = false
+    
+    var credits by remember { mutableIntStateOf(1) } // Start with 1 credit
+    var mRewardedAd by remember { mutableStateOf<RewardedAd?>(null) }
+    var isAdLoading by remember { mutableStateOf(false) }
+    
+    // Function to load rewarded ad
+    fun loadRewardedAd() {
+        if (isPremiumUser) return
+        isAdLoading = true
+        // TEST Rewarded Ad Unit ID. Replace with real AdMob Ad Unit ID before release
+        val adUnitId = "ca-app-pub-3940256099942544/5224354917"
+        val adRequest = AdRequest.Builder().build()
+        RewardedAd.load(context, adUnitId, adRequest, object : RewardedAdLoadCallback() {
+            override fun onAdFailedToLoad(adError: LoadAdError) {
+                mRewardedAd = null
+                isAdLoading = false
+            }
+            override fun onAdLoaded(rewardedAd: RewardedAd) {
+                mRewardedAd = rewardedAd
+                isAdLoading = false
+            }
+        })
+    }
+    
+    LaunchedEffect(Unit) {
+        loadRewardedAd()
+    }
     
     Scaffold(
         topBar = {
@@ -59,20 +96,18 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
                 enabled = !isGenerating
             )
             
+            Text("Available Credits: $credits", style = MaterialTheme.typography.labelLarge)
+            
             Button(
                 onClick = {
-                    if (prompt.isNotBlank()) {
+                    if (prompt.isNotBlank() && credits > 0) {
                         isGenerating = true
                         error = null
                         scope.launch {
                             val result = geminiManager.generateWallpaper(prompt)
                             result.onSuccess { base64 ->
                                 generatedBase64 = base64
-                                // We won't save base64 directly to Firestore as it's too large for a document usually.
-                                // In a real app, upload base64 to Firebase Storage and save URL.
-                                // But for MVP without Firebase Storage enabled, we might hit 1MB limit.
-                                // We'll just display it for now.
-                                // firestoreManager.saveGeneratedWallpaper(base64, prompt, "Custom")
+                                credits -= 1
                             }.onFailure { e ->
                                 error = e.message
                             }
@@ -81,12 +116,39 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !isGenerating && prompt.isNotBlank()
+                enabled = !isGenerating && prompt.isNotBlank() && credits > 0
             ) {
                 if (isGenerating) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
                 } else {
                     Text("Generate (1 Credit)")
+                }
+            }
+            
+            if (!isPremiumUser) {
+                OutlinedButton(
+                    onClick = {
+                        if (mRewardedAd != null && activity != null) {
+                            mRewardedAd?.show(activity) { rewardItem ->
+                                // Reward the user!
+                                credits += 1
+                                // Load the next ad
+                                loadRewardedAd()
+                            }
+                        } else {
+                            loadRewardedAd()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isGenerating && !isAdLoading
+                ) {
+                    if (isAdLoading && mRewardedAd == null) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Loading Ad...")
+                    } else {
+                        Text("Watch ad for +1 free AI credit")
+                    }
                 }
             }
             

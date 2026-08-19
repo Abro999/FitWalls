@@ -15,6 +15,10 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.fitwalls.app.data.FirestoreManager
 import com.fitwalls.app.data.Wallpaper
+import androidx.compose.ui.viewinterop.AndroidView
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.AdView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,6 +31,9 @@ fun HomeScreen(onNavigateToGenerator: () -> Unit) {
         wallpapers = firestoreManager.getWallpapers()
         isLoading = false
     }
+    
+    // TODO: Implement actual premium check. For now, stubbed to false.
+    val isPremiumUser = false
 
     Scaffold(
         topBar = {
@@ -53,14 +60,31 @@ fun HomeScreen(onNavigateToGenerator: () -> Unit) {
                     modifier = Modifier.align(Alignment.Center)
                 )
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(wallpapers) { wallpaper ->
-                        WallpaperCard(wallpaper)
+                Column(modifier = Modifier.fillMaxSize()) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        contentPadding = PaddingValues(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        items(wallpapers) { wallpaper ->
+                            WallpaperCard(wallpaper)
+                        }
+                    }
+                    
+                    if (!isPremiumUser) {
+                        // TEST Banner Ad Unit ID. Replace with real AdMob Ad Unit ID before release
+                        AndroidView(
+                            modifier = Modifier.fillMaxWidth(),
+                            factory = { context ->
+                                AdView(context).apply {
+                                    setAdSize(AdSize.BANNER)
+                                    adUnitId = "ca-app-pub-3940256099942544/6300978111"
+                                    loadAd(AdRequest.Builder().build())
+                                }
+                            }
+                        )
                     }
                 }
             }
