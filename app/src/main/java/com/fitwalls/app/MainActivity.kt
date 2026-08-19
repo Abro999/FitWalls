@@ -1,4 +1,4 @@
-package com.example
+package com.fitwalls.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -24,14 +24,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.*
+import com.fitwalls.app.ui.theme.*
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
     setContent {
-      MyApplicationTheme {
+      FitWallsTheme {
         Scaffold(
           modifier = Modifier.fillMaxSize(),
           containerColor = BgDark,

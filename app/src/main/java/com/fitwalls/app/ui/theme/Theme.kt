@@ -1,4 +1,4 @@
-package com.example.ui.theme
+package com.fitwalls.app.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -23,7 +23,7 @@ private val DarkColorScheme =
   )
 
 @Composable
-fun MyApplicationTheme(
+fun FitWallsTheme(
   darkTheme: Boolean = true, // Force dark theme for Sophisticated Dark design
   // Dynamic color is available on Android 12+
   dynamicColor: Boolean = false, // Disable dynamic colors to enforce our custom design

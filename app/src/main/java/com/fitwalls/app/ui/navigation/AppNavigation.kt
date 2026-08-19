@@ -1,12 +1,12 @@
-package com.example.ui.navigation
+package com.fitwalls.app.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.ui.screens.home.HomeScreen
-import com.example.ui.screens.login.LoginScreen
-import com.example.ui.screens.generator.GeneratorScreen
+import com.fitwalls.app.ui.screens.home.HomeScreen
+import com.fitwalls.app.ui.screens.login.LoginScreen
+import com.fitwalls.app.ui.screens.generator.GeneratorScreen
 import kotlinx.serialization.Serializable
 
 @Serializable

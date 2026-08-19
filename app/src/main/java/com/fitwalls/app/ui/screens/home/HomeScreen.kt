@@ -1,4 +1,4 @@
-package com.example.ui.screens.home
+package com.fitwalls.app.ui.screens.home
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -13,8 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.data.FirestoreManager
-import com.example.data.Wallpaper
+import com.fitwalls.app.data.FirestoreManager
+import com.fitwalls.app.data.Wallpaper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

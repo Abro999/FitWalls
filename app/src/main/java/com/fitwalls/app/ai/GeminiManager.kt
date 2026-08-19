@@ -1,6 +1,6 @@
-package com.example.ai
+package com.fitwalls.app.ai
 
-import com.example.BuildConfig
+import com.fitwalls.app.BuildConfig
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject

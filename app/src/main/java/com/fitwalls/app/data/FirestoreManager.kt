@@ -1,4 +1,4 @@
-package com.example.data
+package com.fitwalls.app.data
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore

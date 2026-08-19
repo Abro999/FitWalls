@@ -1,4 +1,4 @@
-package com.example.auth
+package com.fitwalls.app.auth
 
 import android.content.Context
 import android.util.Log

@@ -1,4 +1,4 @@
-package com.example.ui.screens.generator
+package com.fitwalls.app.ui.screens.generator
 
 import android.graphics.BitmapFactory
 import android.util.Base64
@@ -14,8 +14,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.example.ai.GeminiManager
-import com.example.data.FirestoreManager
+import com.fitwalls.app.ai.GeminiManager
+import com.fitwalls.app.data.FirestoreManager
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
