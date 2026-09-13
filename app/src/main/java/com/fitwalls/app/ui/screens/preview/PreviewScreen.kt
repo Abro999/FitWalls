@@ -1,6 +1,8 @@
 package com.fitwalls.app.ui.screens.preview
 
 import android.app.Activity
+import android.app.WallpaperManager
+import android.graphics.drawable.BitmapDrawable
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -12,7 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.request.SuccessResult
 import com.fitwalls.app.data.FirestoreManager
 import com.fitwalls.app.data.Wallpaper
 import com.fitwalls.app.util.Constants
@@ -20,7 +25,9 @@ import com.fitwalls.app.util.PaymentBus
 import com.fitwalls.app.util.AdManager
 import com.google.firebase.auth.FirebaseAuth
 import com.razorpay.Checkout
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,6 +38,8 @@ fun PreviewScreen(wallpaperId: String, onNavigateBack: () -> Unit) {
     var hasPurchased by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
     var isProcessingPayment by remember { mutableStateOf(false) }
+    var showApplyDialog by remember { mutableStateOf(false) }
+    var isApplying by remember { mutableStateOf(false) }
     
     // TODO: Implement actual premium check. For now, stubbed to false.
     val isPremiumUser = false
@@ -38,6 +47,42 @@ fun PreviewScreen(wallpaperId: String, onNavigateBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val activity = context as? Activity
+    
+    fun applyWallpaper(targetFlag: Int) {
+        val wp = wallpaper ?: return
+        scope.launch(Dispatchers.IO) {
+            isApplying = true
+            try {
+                val loader = ImageLoader(context)
+                val request = ImageRequest.Builder(context)
+                    .data(wp.imageUrl)
+                    .allowHardware(false)
+                    .build()
+                val result = (loader.execute(request) as? SuccessResult)?.drawable
+                val bitmap = (result as? BitmapDrawable)?.bitmap
+                if (bitmap != null) {
+                    val wm = WallpaperManager.getInstance(context)
+                    wm.setBitmap(bitmap, null, true, targetFlag)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Wallpaper applied successfully!", Toast.LENGTH_SHORT).show()
+                        showApplyDialog = false
+                        isApplying = false
+                        AdManager.onWallpaperApplied(activity, isPremiumUser)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Failed to decode wallpaper image", Toast.LENGTH_SHORT).show()
+                        isApplying = false
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Error applying wallpaper: ${e.message}", Toast.LENGTH_SHORT).show()
+                    isApplying = false
+                }
+            }
+        }
+    }
     
     // Load wallpaper data and preload interstitial ad
     LaunchedEffect(wallpaperId) {
@@ -157,16 +202,69 @@ fun PreviewScreen(wallpaperId: String, onNavigateBack: () -> Unit) {
                                 }
                             }
                         } else {
-                            Button(onClick = {
-                                Toast.makeText(context, "Applied wallpaper successfully!", Toast.LENGTH_SHORT).show()
-                                AdManager.onWallpaperApplied(activity, isPremiumUser)
-                            }) {
-                                Text("Apply")
+                            Button(
+                                onClick = { showApplyDialog = true },
+                                enabled = !isApplying
+                            ) {
+                                if (isApplying) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+                                } else {
+                                    Text("Apply")
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    if (showApplyDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isApplying) showApplyDialog = false },
+            title = { Text("Set Wallpaper") },
+            text = {
+                if (isApplying) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.padding(8.dp)
+                    ) {
+                        CircularProgressIndicator()
+                        Text("Applying wallpaper...")
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Where would you like to set this wallpaper?")
+                        FilledTonalButton(
+                            onClick = { applyWallpaper(WallpaperManager.FLAG_SYSTEM) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Home Screen")
+                        }
+                        FilledTonalButton(
+                            onClick = { applyWallpaper(WallpaperManager.FLAG_LOCK) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Lock Screen")
+                        }
+                        Button(
+                            onClick = { applyWallpaper(WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Both Screens")
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                if (!isApplying) {
+                    TextButton(onClick = { showApplyDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        )
     }
 }

@@ -10,6 +10,8 @@ import com.fitwalls.app.ui.screens.home.HomeScreen
 import com.fitwalls.app.ui.screens.login.LoginScreen
 import com.fitwalls.app.ui.screens.generator.GeneratorScreen
 import com.fitwalls.app.ui.screens.upload.UploadScreen
+import com.fitwalls.app.ui.screens.account.AccountScreen
+import com.fitwalls.app.ui.screens.upload.EditWallpaperScreen
 import kotlinx.serialization.Serializable
 
 import com.fitwalls.app.ui.screens.auth.RoleSelectionScreen
@@ -31,6 +33,12 @@ object GeneratorRoute
 
 @Serializable
 object UploadRoute
+
+@Serializable
+object AccountRoute
+
+@Serializable
+data class EditWallpaperRoute(val wallpaperId: String)
 
 @Serializable
 data class PreviewRoute(val wallpaperId: String)
@@ -81,6 +89,9 @@ fun AppNavigation() {
                 },
                 onNavigateToPreview = { wallpaperId ->
                     navController.navigate(PreviewRoute(wallpaperId))
+                },
+                onNavigateToAccount = {
+                    navController.navigate(AccountRoute)
                 }
             )
         }
@@ -95,6 +106,35 @@ fun AppNavigation() {
         
         composable<UploadRoute> {
             UploadScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable<AccountRoute> {
+            AccountScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onSignOut = {
+                    navController.navigate(LoginRoute) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                onNavigateToUpload = {
+                    navController.navigate(UploadRoute)
+                },
+                onNavigateToEditWallpaper = { wallpaperId ->
+                    navController.navigate(EditWallpaperRoute(wallpaperId))
+                }
+            )
+        }
+
+        composable<EditWallpaperRoute> { backStackEntry ->
+            val route = backStackEntry.toRoute<EditWallpaperRoute>()
+            EditWallpaperScreen(
+                wallpaperId = route.wallpaperId,
                 onNavigateBack = {
                     navController.popBackStack()
                 }

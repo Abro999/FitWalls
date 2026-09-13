@@ -10,13 +10,16 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import coil.compose.AsyncImage
 import com.fitwalls.app.data.FirestoreManager
 import com.fitwalls.app.data.Wallpaper
@@ -29,15 +32,18 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.launch
 
-import androidx.compose.material.icons.filled.Upload
-
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyItems
 import com.fitwalls.app.util.WALLPAPER_CATEGORIES
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onNavigateToGenerator: () -> Unit, onNavigateToUpload: () -> Unit, onNavigateToPreview: (String) -> Unit) {
+fun HomeScreen(
+    onNavigateToGenerator: () -> Unit,
+    onNavigateToUpload: () -> Unit,
+    onNavigateToPreview: (String) -> Unit,
+    onNavigateToAccount: () -> Unit
+) {
     val firestoreManager = remember { FirestoreManager() }
     var wallpapers by remember { mutableStateOf<List<Wallpaper>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -50,15 +56,14 @@ fun HomeScreen(onNavigateToGenerator: () -> Unit, onNavigateToUpload: () -> Unit
     }
     
     var userRole by remember { mutableStateOf<String?>("user") }
-    
+    val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 isLoading = true
-                // Launch coroutine to fetch wallpapers and role
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                scope.launch {
                     wallpapers = firestoreManager.getWallpapers()
                     userRole = firestoreManager.getUserRole()
                     isLoading = false
@@ -88,7 +93,7 @@ fun HomeScreen(onNavigateToGenerator: () -> Unit, onNavigateToUpload: () -> Unit
                                 .clip(RoundedCornerShape(8.dp))
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("FitWalls")
+                        Text("FitWalls", fontWeight = FontWeight.Bold)
                     }
                 },
                 actions = {
@@ -96,6 +101,9 @@ fun HomeScreen(onNavigateToGenerator: () -> Unit, onNavigateToUpload: () -> Unit
                         IconButton(onClick = onNavigateToUpload) {
                             Icon(Icons.Default.Upload, contentDescription = "Upload Wallpaper")
                         }
+                    }
+                    IconButton(onClick = onNavigateToAccount) {
+                        Icon(Icons.Default.AccountCircle, contentDescription = "Account Profile")
                     }
                 }
             )
@@ -175,25 +183,48 @@ fun WallpaperCard(wallpaper: Wallpaper, onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(9f / 16f)
+            .aspectRatio(9f / 16f),
+        shape = RoundedCornerShape(12.dp)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AsyncImage(
                 model = wallpaper.imageUrl,
-                contentDescription = wallpaper.prompt,
+                contentDescription = wallpaper.title.ifBlank { wallpaper.prompt },
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
-            // Add gradient or text overlay here if desired
             Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
             ) {
-                Text(
-                    text = wallpaper.creatorName,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(4.dp)
-                )
+                Column(modifier = Modifier.padding(6.dp)) {
+                    Text(
+                        text = wallpaper.title.ifBlank { "Untitled" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = wallpaper.creatorName.ifBlank { "Anonymous" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (wallpaper.pricingType == "Paid") "₹${wallpaper.price}" else "Free",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (wallpaper.pricingType == "Paid") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
             }
         }
     }

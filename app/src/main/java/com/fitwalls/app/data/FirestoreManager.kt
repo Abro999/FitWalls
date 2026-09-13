@@ -20,6 +20,13 @@ data class Wallpaper(
     val price: Double = 0.0
 )
 
+data class CreatorEarnings(
+    val grossTotal: Double = 0.0,
+    val platformCommission: Double = 0.0,
+    val netPayable: Double = 0.0,
+    val totalSales: Int = 0
+)
+
 class FirestoreManager {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -169,6 +176,108 @@ class FirestoreManager {
             true
         } catch (e: Exception) {
             false
+        }
+    }
+
+    suspend fun getCreatorWallpapers(creatorId: String): List<Wallpaper> {
+        return try {
+            val snapshot = db.collection("wallpapers")
+                .whereEqualTo("creatorId", creatorId)
+                .get().await()
+            snapshot.toObjects(Wallpaper::class.java)
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun getCreatorEarnings(creatorId: String): CreatorEarnings {
+        return try {
+            val snapshot = db.collection("purchases")
+                .whereEqualTo("creatorId", creatorId)
+                .get().await()
+            var gross = 0.0
+            var count = 0
+            for (doc in snapshot.documents) {
+                val price = doc.getDouble("pricePaid") ?: 0.0
+                gross += price
+                count++
+            }
+            val commission = gross * 0.20 // 20% platform commission
+            val net = gross - commission
+            CreatorEarnings(
+                grossTotal = gross,
+                platformCommission = commission,
+                netPayable = net,
+                totalSales = count
+            )
+        } catch (e: Exception) {
+            CreatorEarnings()
+        }
+    }
+
+    suspend fun updateWallpaper(wallpaperId: String, updatedFields: Map<String, Any>): Boolean {
+        val user = auth.currentUser ?: return false
+        return try {
+            val docRef = db.collection("wallpapers").document(wallpaperId)
+            val snapshot = docRef.get().await()
+            if (snapshot.getString("creatorId") != user.uid) {
+                return false // unauthorized
+            }
+            docRef.update(updatedFields).await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun deleteWallpaper(wallpaperId: String): Boolean {
+        val user = auth.currentUser ?: return false
+        return try {
+            val docRef = db.collection("wallpapers").document(wallpaperId)
+            val snapshot = docRef.get().await()
+            if (snapshot.getString("creatorId") != user.uid) {
+                return false // unauthorized
+            }
+            val imageUrl = snapshot.getString("imageUrl")
+            docRef.delete().await()
+
+            if (!imageUrl.isNullOrBlank()) {
+                try {
+                    storage.getReferenceFromUrl(imageUrl).delete().await()
+                } catch (ignored: Exception) {
+                    // Ignore storage deletion errors
+                }
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // This is for the app owner to manually reference when paying out creator earnings.
+    // It does NOT process automatic split payments.
+    // NOTE: Automatic payment splitting would require a server-side integration
+    // (e.g. Firebase Cloud Functions with Razorpay Route API), a separate future task,
+    // since it needs the Razorpay Key Secret which must never be stored in the Android app.
+    suspend fun savePaymentDetails(paymentDetails: Map<String, Any>): Boolean {
+        val user = auth.currentUser ?: return false
+        return try {
+            db.collection("users").document(user.uid)
+                .set(mapOf("paymentDetails" to paymentDetails), com.google.firebase.firestore.SetOptions.merge()).await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun getPaymentDetails(): Map<String, Any>? {
+        val user = auth.currentUser ?: return null
+        return try {
+            val snapshot = db.collection("users").document(user.uid).get().await()
+            @Suppress("UNCHECKED_CAST")
+            snapshot.get("paymentDetails") as? Map<String, Any>
+        } catch (e: Exception) {
+            null
         }
     }
 }
