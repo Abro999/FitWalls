@@ -1,6 +1,11 @@
 package com.fitwalls.app.ui.screens.home
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import com.fitwalls.app.R
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -73,7 +78,19 @@ fun HomeScreen(onNavigateToGenerator: () -> Unit, onNavigateToUpload: () -> Unit
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("FitWalls") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_fitwalls_logo),
+                            contentDescription = "FitWalls Logo",
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("FitWalls")
+                    }
+                },
                 actions = {
                     if (userRole == "creator") {
                         IconButton(onClick = onNavigateToUpload) {
@@ -134,13 +151,13 @@ fun HomeScreen(onNavigateToGenerator: () -> Unit, onNavigateToUpload: () -> Unit
                     }
                     
                     if (!isPremiumUser) {
-                        // TEST Banner Ad Unit ID. Replace with real AdMob Ad Unit ID before release
+                        // REAL Banner Ad Unit ID: ca-app-pub-6916958158520465/1961203482
                         AndroidView(
                             modifier = Modifier.fillMaxWidth(),
                             factory = { context ->
                                 AdView(context).apply {
                                     setAdSize(AdSize.BANNER)
-                                    adUnitId = "ca-app-pub-3940256099942544/6300978111"
+                                    adUnitId = "ca-app-pub-6916958158520465/1961203482"
                                     loadAd(AdRequest.Builder().build())
                                 }
                             }

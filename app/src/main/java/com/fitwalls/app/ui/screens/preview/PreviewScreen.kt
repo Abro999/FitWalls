@@ -17,6 +17,7 @@ import com.fitwalls.app.data.FirestoreManager
 import com.fitwalls.app.data.Wallpaper
 import com.fitwalls.app.util.Constants
 import com.fitwalls.app.util.PaymentBus
+import com.fitwalls.app.util.AdManager
 import com.google.firebase.auth.FirebaseAuth
 import com.razorpay.Checkout
 import kotlinx.coroutines.launch
@@ -31,12 +32,16 @@ fun PreviewScreen(wallpaperId: String, onNavigateBack: () -> Unit) {
     var isLoading by remember { mutableStateOf(true) }
     var isProcessingPayment by remember { mutableStateOf(false) }
     
+    // TODO: Implement actual premium check. For now, stubbed to false.
+    val isPremiumUser = false
+    
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val activity = context as? Activity
     
-    // Load wallpaper data
+    // Load wallpaper data and preload interstitial ad
     LaunchedEffect(wallpaperId) {
+        AdManager.loadInterstitialAd(context, isPremiumUser)
         wallpaper = firestoreManager.getWallpaper(wallpaperId)
         if (wallpaper != null) {
             hasPurchased = firestoreManager.hasUserPurchased(wallpaperId)
@@ -154,6 +159,7 @@ fun PreviewScreen(wallpaperId: String, onNavigateBack: () -> Unit) {
                         } else {
                             Button(onClick = {
                                 Toast.makeText(context, "Applied wallpaper successfully!", Toast.LENGTH_SHORT).show()
+                                AdManager.onWallpaperApplied(activity, isPremiumUser)
                             }) {
                                 Text("Apply")
                             }

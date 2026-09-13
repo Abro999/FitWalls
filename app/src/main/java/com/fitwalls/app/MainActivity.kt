@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.fitwalls.app.ui.theme.*
 import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.RequestConfiguration
 import com.google.android.gms.ads.interstitial.InterstitialAd
 import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
 import com.google.android.gms.ads.LoadAdError
@@ -36,6 +37,7 @@ import androidx.compose.runtime.setValue
 import com.razorpay.Checkout
 import com.razorpay.PaymentResultListener
 import com.fitwalls.app.util.PaymentBus
+import com.fitwalls.app.util.AdManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -48,6 +50,18 @@ class MainActivity : ComponentActivity(), PaymentResultListener {
     
     // Initialize the Google Mobile Ads SDK
     MobileAds.initialize(this) {}
+
+    // Register test devices so real ads don't get accidentally clicked/counted during development
+    // TODO: Grab your device's Test Device ID from Logcat on first run
+    // (Search for "Use RequestConfiguration.Builder().setTestDeviceIds" in Logcat) and add it to the list below.
+    val testDeviceIds = listOf(
+        AdRequest.DEVICE_ID_EMULATOR
+        // TODO: Add your physical test device hashed ID here, e.g. "B3EEABB8EE11C2BE770B684D95219ECB"
+    )
+    val requestConfiguration = RequestConfiguration.Builder()
+        .setTestDeviceIds(testDeviceIds)
+        .build()
+    MobileAds.setRequestConfiguration(requestConfiguration)
 
     enableEdgeToEdge()
     setContent {
@@ -146,24 +160,8 @@ fun HeroCard() {
   // TODO: Implement actual premium check. For now, stubbed to false.
   val isPremiumUser = false
   
-  // Interstitial Ad Logic
-  var mInterstitialAd by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<InterstitialAd?>(null) }
-  var applyCount by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
-  
   androidx.compose.runtime.LaunchedEffect(Unit) {
-      if (!isPremiumUser) {
-          // TEST Interstitial Ad Unit ID. Replace with real AdMob Ad Unit ID before release
-          val adUnitId = "ca-app-pub-3940256099942544/1033173712"
-          val adRequest = AdRequest.Builder().build()
-          InterstitialAd.load(context, adUnitId, adRequest, object : InterstitialAdLoadCallback() {
-              override fun onAdFailedToLoad(adError: LoadAdError) {
-                  mInterstitialAd = null
-              }
-              override fun onAdLoaded(interstitialAd: InterstitialAd) {
-                  mInterstitialAd = interstitialAd
-              }
-          })
-      }
+      AdManager.loadInterstitialAd(context, isPremiumUser)
   }
 
   Box(
@@ -205,22 +203,8 @@ fun HeroCard() {
       }
       Button(
         onClick = { 
-            applyCount++
             // Show interstitial ad every 3rd apply
-            if (applyCount % 3 == 0 && mInterstitialAd != null && activity != null && !isPremiumUser) {
-                mInterstitialAd?.show(activity)
-                // Reload ad for next time
-                val adUnitId = "ca-app-pub-3940256099942544/1033173712"
-                val adRequest = AdRequest.Builder().build()
-                InterstitialAd.load(context, adUnitId, adRequest, object : InterstitialAdLoadCallback() {
-                    override fun onAdFailedToLoad(adError: LoadAdError) {
-                        mInterstitialAd = null
-                    }
-                    override fun onAdLoaded(interstitialAd: InterstitialAd) {
-                        mInterstitialAd = interstitialAd
-                    }
-                })
-            }
+            AdManager.onWallpaperApplied(activity, isPremiumUser)
         },
         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
         shape = RoundedCornerShape(percent = 50),

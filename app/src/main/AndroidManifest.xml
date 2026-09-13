@@ -14,10 +14,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.FitWalls">
 
-        <!-- TEST AdMob App ID. Replace with real AdMob App ID before release -->
+        <!-- REAL AdMob App ID: ca-app-pub-6916958158520465~4343824240 -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713"/>
+            android:value="ca-app-pub-6916958158520465~4343824240"/>
 
         <activity
             android:name=".MainActivity"

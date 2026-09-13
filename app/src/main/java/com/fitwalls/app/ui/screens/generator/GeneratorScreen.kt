@@ -58,8 +58,8 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
     fun loadRewardedAd() {
         if (isPremiumUser) return
         isAdLoading = true
-        // TEST Rewarded Ad Unit ID. Replace with real AdMob Ad Unit ID before release
-        val adUnitId = "ca-app-pub-3940256099942544/5224354917"
+        // REAL Rewarded Ad Unit ID: ca-app-pub-6916958158520465/3246364999
+        val adUnitId = "ca-app-pub-6916958158520465/3246364999"
         val adRequest = AdRequest.Builder().build()
         RewardedAd.load(context, adUnitId, adRequest, object : RewardedAdLoadCallback() {
             override fun onAdFailedToLoad(adError: LoadAdError) {
