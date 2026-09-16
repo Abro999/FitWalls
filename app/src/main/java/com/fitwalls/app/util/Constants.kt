@@ -4,4 +4,8 @@ object Constants {
     // TEST MODE key — replace with live key (rzp_live_...) only after Razorpay business KYC is approved.
     // NEVER put the Key Secret in this app — that stays server-side only.
     const val RAZORPAY_KEY_ID = "rzp_test_TRYJjFMmkD9ZXk"
+
+    // One-time lifetime Premium Pass price
+    const val PREMIUM_PASS_PRICE_PAISE = 9900 // ₹99 in paise
+    const val PREMIUM_PASS_PRICE_RUPEES = 99
 }

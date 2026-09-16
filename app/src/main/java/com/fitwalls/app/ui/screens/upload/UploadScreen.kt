@@ -2,6 +2,7 @@ package com.fitwalls.app.ui.screens.upload
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -47,7 +48,7 @@ fun UploadScreen(onNavigateBack: () -> Unit) {
     val firestoreManager = remember { FirestoreManager() }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         selectedImageUri = uri
     }
@@ -76,7 +77,11 @@ fun UploadScreen(onNavigateBack: () -> Unit) {
             
             // Image Picker Area
             Card(
-                onClick = { imagePickerLauncher.launch("image/*") },
+                onClick = {
+                    imagePickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(250.dp)

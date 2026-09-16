@@ -28,9 +28,9 @@ data class CreatorEarnings(
 )
 
 class FirestoreManager {
-    private val db = FirebaseFirestore.getInstance()
-    private val auth = FirebaseAuth.getInstance()
-    private val storage = FirebaseStorage.getInstance()
+    private val db: FirebaseFirestore get() = FirebaseFirestore.getInstance()
+    private val auth: FirebaseAuth get() = FirebaseAuth.getInstance()
+    private val storage: FirebaseStorage get() = FirebaseStorage.getInstance()
     
     suspend fun getUserRole(): String? {
         val user = auth.currentUser ?: return null
@@ -44,14 +44,43 @@ class FirestoreManager {
     
     suspend fun createUserProfile(role: String): Boolean {
         val user = auth.currentUser ?: return false
-        val userProfile = hashMapOf(
+        val userProfile = hashMapOf<String, Any?>(
             "uid" to user.uid,
             "displayName" to (user.displayName ?: ""),
             "email" to (user.email ?: ""),
-            "role" to role
+            "role" to role,
+            "isPremiumMember" to false,
+            "premiumPurchasedAt" to null,
+            "acceptedTermsAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
         )
         return try {
-            db.collection("users").document(user.uid).set(userProfile).await()
+            db.collection("users").document(user.uid)
+                .set(userProfile, com.google.firebase.firestore.SetOptions.merge()).await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun isPremiumMember(): Boolean {
+        val user = auth.currentUser ?: return false
+        return try {
+            val snapshot = db.collection("users").document(user.uid).get().await()
+            snapshot.getBoolean("isPremiumMember") ?: false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun markUserAsPremium(): Boolean {
+        val user = auth.currentUser ?: return false
+        return try {
+            val data = mapOf(
+                "isPremiumMember" to true,
+                "premiumPurchasedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+            )
+            db.collection("users").document(user.uid)
+                .set(data, com.google.firebase.firestore.SetOptions.merge()).await()
             true
         } catch (e: Exception) {
             false
@@ -278,6 +307,38 @@ class FirestoreManager {
             snapshot.get("paymentDetails") as? Map<String, Any>
         } catch (e: Exception) {
             null
+        }
+    }
+
+    suspend fun getCreatorProfileData(): Map<String, Any>? {
+        val user = auth.currentUser ?: return null
+        return try {
+            val snapshot = db.collection("users").document(user.uid).get().await()
+            snapshot.data
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun updateCreatorPayoutStatus(
+        linkedAccountId: String?,
+        payoutStatus: String,
+        details: Map<String, Any>
+    ): Boolean {
+        val user = auth.currentUser ?: return false
+        return try {
+            val map = mutableMapOf<String, Any>(
+                "payoutStatus" to payoutStatus,
+                "paymentDetails" to details
+            )
+            if (!linkedAccountId.isNullOrBlank()) {
+                map["razorpayLinkedAccountId"] = linkedAccountId
+            }
+            db.collection("users").document(user.uid)
+                .set(map, com.google.firebase.firestore.SetOptions.merge()).await()
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 }

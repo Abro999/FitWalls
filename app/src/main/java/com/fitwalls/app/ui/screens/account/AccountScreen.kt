@@ -31,6 +31,8 @@ import com.fitwalls.app.data.CreatorEarnings
 import com.fitwalls.app.data.FirestoreManager
 import com.fitwalls.app.data.Wallpaper
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.functions.FirebaseFunctions
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,35 +51,71 @@ fun AccountScreen(
 
     val user = auth.currentUser
     var role by remember { mutableStateOf<String?>("user") }
+    var isPremiumMember by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
 
     // Creator data
     var earnings by remember { mutableStateOf(CreatorEarnings()) }
     var myWallpapers by remember { mutableStateOf<List<Wallpaper>>(emptyList()) }
 
-    // Payment details state
-    var paymentMethod by remember { mutableStateOf("upi") } // "upi" or "bank"
-    var upiId by remember { mutableStateOf("") }
+    // Payment details state (Razorpay Route)
     var accountNumber by remember { mutableStateOf("") }
     var ifscCode by remember { mutableStateOf("") }
     var accountHolderName by remember { mutableStateOf("") }
+    var phoneNumber by remember { mutableStateOf("") }
     var isSavingPayment by remember { mutableStateOf(false) }
+    var paymentErrorMessage by remember { mutableStateOf<String?>(null) }
+    var submissionSuccessMessage by remember { mutableStateOf<String?>(null) }
+    var razorpayLinkedAccountId by remember { mutableStateOf<String?>(null) }
+    var isVerificationPending by remember { mutableStateOf(false) }
+    var isVerified by remember { mutableStateOf(false) }
 
     // Load user role, earnings, uploads, and payment details
     LaunchedEffect(Unit) {
         val r = firestoreManager.getUserRole() ?: "user"
         role = r
+        isPremiumMember = firestoreManager.isPremiumMember()
         if (r == "creator" && user != null) {
             earnings = firestoreManager.getCreatorEarnings(user.uid)
             myWallpapers = firestoreManager.getCreatorWallpapers(user.uid)
 
-            val existingDetails = firestoreManager.getPaymentDetails()
-            if (existingDetails != null) {
-                paymentMethod = existingDetails["method"] as? String ?: "upi"
-                upiId = existingDetails["upiId"] as? String ?: ""
-                accountNumber = existingDetails["accountNumber"] as? String ?: ""
-                ifscCode = existingDetails["ifsc"] as? String ?: ""
-                accountHolderName = existingDetails["accountHolderName"] as? String ?: ""
+            val profileData = firestoreManager.getCreatorProfileData()
+            if (profileData != null) {
+                val linkedId = profileData["razorpayLinkedAccountId"] as? String
+                    ?: profileData["linkedAccountId"] as? String
+                    ?: profileData["accountId"] as? String
+                val pStatus = (profileData["payoutStatus"] as? String
+                    ?: profileData["accountStatus"] as? String
+                    ?: profileData["verificationStatus"] as? String)?.lowercase()
+                
+                @Suppress("UNCHECKED_CAST")
+                val paymentDetails = profileData["paymentDetails"] as? Map<String, Any>
+                
+                accountNumber = paymentDetails?.get("bankAccountNumber") as? String
+                    ?: paymentDetails?.get("accountNumber") as? String
+                    ?: profileData["bankAccountNumber"] as? String
+                    ?: profileData["accountNumber"] as? String ?: ""
+                ifscCode = paymentDetails?.get("ifsc") as? String
+                    ?: profileData["ifsc"] as? String ?: ""
+                accountHolderName = paymentDetails?.get("accountHolderName") as? String
+                    ?: profileData["accountHolderName"] as? String
+                    ?: user.displayName ?: ""
+                phoneNumber = paymentDetails?.get("phone") as? String
+                    ?: profileData["phone"] as? String
+                    ?: user.phoneNumber ?: ""
+
+                razorpayLinkedAccountId = linkedId
+                
+                if (pStatus == "verified" || pStatus == "active") {
+                    isVerified = true
+                    isVerificationPending = false
+                } else if (pStatus == "pending" || !linkedId.isNullOrBlank() || paymentDetails != null) {
+                    isVerificationPending = true
+                    isVerified = false
+                }
+            } else {
+                accountHolderName = user.displayName ?: ""
+                phoneNumber = user.phoneNumber ?: ""
             }
         }
         isLoading = false
@@ -165,20 +203,38 @@ fun AccountScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
-                                SuggestionChip(
-                                    onClick = { },
-                                    label = {
-                                        Text(
-                                            text = if (role == "creator") "CREATOR ACCOUNT" else "STANDARD USER",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    SuggestionChip(
+                                        onClick = { },
+                                        label = {
+                                            Text(
+                                                text = if (role == "creator") "CREATOR" else "STANDARD",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp
+                                            )
+                                        },
+                                        colors = SuggestionChipDefaults.suggestionChipColors(
+                                            containerColor = if (role == "creator") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                                            labelColor = if (role == "creator") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
                                         )
-                                    },
-                                    colors = SuggestionChipDefaults.suggestionChipColors(
-                                        containerColor = if (role == "creator") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                                        labelColor = if (role == "creator") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
                                     )
-                                )
+                                    if (isPremiumMember) {
+                                        SuggestionChip(
+                                            onClick = { },
+                                            label = {
+                                                Text(
+                                                    text = "PREMIUM PASS",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp
+                                                )
+                                            },
+                                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                                labelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                                            )
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -251,7 +307,7 @@ fun AccountScreen(
                                 }
 
                                 Text(
-                                    "Payouts are processed manually by the platform owner using the payment details below.",
+                                    "Creator split payouts are processed automatically via Razorpay Route upon verified purchases.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -259,7 +315,7 @@ fun AccountScreen(
                         }
                     }
 
-                    // 2. Creator Payment Details Section
+                    // 2. Creator Payment Details Section (Razorpay Route)
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -267,93 +323,254 @@ fun AccountScreen(
                         ) {
                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Row(
+                                    modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Icon(Icons.Default.AccountBalance, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                    Text("Payout Details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.AccountBalance, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                        Text("Payment Details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    // Verification Status Badge
+                                    if (isVerified) {
+                                        SuggestionChip(
+                                            onClick = { },
+                                            label = { Text("Verified", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                                            icon = { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                iconContentColor = MaterialTheme.colorScheme.primary
+                                            )
+                                        )
+                                    } else if (isVerificationPending) {
+                                        SuggestionChip(
+                                            onClick = { },
+                                            label = { Text("Verification pending", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                                            icon = { Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                                labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                iconContentColor = MaterialTheme.colorScheme.tertiary
+                                            )
+                                        )
+                                    } else {
+                                        SuggestionChip(
+                                            onClick = { },
+                                            label = { Text("Not Linked", fontSize = 12.sp) },
+                                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                                containerColor = MaterialTheme.colorScheme.surface,
+                                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        )
+                                    }
                                 }
 
                                 Text(
-                                    "Provide your payout destination for earnings withdrawal.",
+                                    "Enter your bank account details for Razorpay Route automatic creator payouts. Once verified, sales are split directly to your bank account.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
 
-                                // Method toggle: UPI or Bank
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    FilterChip(
-                                        selected = paymentMethod == "upi",
-                                        onClick = { paymentMethod = "upi" },
-                                        label = { Text("UPI ID") },
-                                        leadingIcon = { Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                                    )
-                                    FilterChip(
-                                        selected = paymentMethod == "bank",
-                                        onClick = { paymentMethod = "bank" },
-                                        label = { Text("Bank Transfer") },
-                                        leadingIcon = { Icon(Icons.Default.AccountBalance, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                if (!razorpayLinkedAccountId.isNullOrBlank()) {
+                                    Text(
+                                        "Linked Account: $razorpayLinkedAccountId",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
 
-                                if (paymentMethod == "upi") {
-                                    OutlinedTextField(
-                                        value = upiId,
-                                        onValueChange = { upiId = it },
-                                        label = { Text("UPI ID (e.g. name@okhdfcbank)") },
-                                        singleLine = true,
+                                // Success Notification Banner
+                                if (submissionSuccessMessage != null) {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                        shape = RoundedCornerShape(8.dp),
                                         modifier = Modifier.fillMaxWidth()
-                                    )
-                                } else {
-                                    OutlinedTextField(
-                                        value = accountHolderName,
-                                        onValueChange = { accountHolderName = it },
-                                        label = { Text("Account Holder Name") },
-                                        singleLine = true,
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                            Text(
+                                                text = submissionSuccessMessage ?: "",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Error Notification Banner
+                                if (paymentErrorMessage != null) {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                                        shape = RoundedCornerShape(8.dp),
                                         modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = accountNumber,
-                                        onValueChange = { accountNumber = it },
-                                        label = { Text("Bank Account Number") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = ifscCode,
-                                        onValueChange = { ifscCode = it },
-                                        label = { Text("IFSC Code") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "Submission Error",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                                )
+                                                Text(
+                                                    text = paymentErrorMessage ?: "",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                OutlinedTextField(
+                                    value = accountHolderName,
+                                    onValueChange = {
+                                        accountHolderName = it
+                                        paymentErrorMessage = null
+                                    },
+                                    label = { Text("Account Holder Name") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = !isSavingPayment
+                                )
+
+                                OutlinedTextField(
+                                    value = accountNumber,
+                                    onValueChange = {
+                                        accountNumber = it
+                                        paymentErrorMessage = null
+                                    },
+                                    label = { Text("Bank Account Number") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = !isSavingPayment
+                                )
+
+                                OutlinedTextField(
+                                    value = ifscCode,
+                                    onValueChange = {
+                                        ifscCode = it.uppercase()
+                                        paymentErrorMessage = null
+                                    },
+                                    label = { Text("IFSC Code (e.g. HDFC0001234)") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = !isSavingPayment
+                                )
+
+                                OutlinedTextField(
+                                    value = phoneNumber,
+                                    onValueChange = {
+                                        phoneNumber = it
+                                        paymentErrorMessage = null
+                                    },
+                                    label = { Text("Phone Number") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = !isSavingPayment
+                                )
+
+                                // Email info display (from signed-in user)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Account Email:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(user?.email ?: "No email", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
                                 }
 
                                 Button(
                                     onClick = {
+                                        if (accountHolderName.isBlank()) {
+                                            paymentErrorMessage = "Please enter the account holder name."
+                                            return@Button
+                                        }
+                                        if (accountNumber.isBlank() || accountNumber.length < 5) {
+                                            paymentErrorMessage = "Please enter a valid bank account number."
+                                            return@Button
+                                        }
+                                        if (ifscCode.isBlank() || ifscCode.length < 4) {
+                                            paymentErrorMessage = "Please enter a valid bank IFSC code."
+                                            return@Button
+                                        }
+
                                         scope.launch {
                                             isSavingPayment = true
-                                            // This is for the app owner to manually reference when paying out creator earnings — it does NOT process automatic split payments.
-                                            // Automatic payment splitting would require a server-side integration (e.g. Firebase Cloud Functions with Razorpay Route API),
-                                            // a separate future task, since it needs the Razorpay Key Secret which must never be stored in the Android app.
-                                            val details = if (paymentMethod == "upi") {
-                                                mapOf(
-                                                    "method" to "upi",
-                                                    "upiId" to upiId.trim()
-                                                )
-                                            } else {
-                                                mapOf(
-                                                    "method" to "bank",
+                                            paymentErrorMessage = null
+                                            submissionSuccessMessage = null
+
+                                            try {
+                                                val functions = FirebaseFunctions.getInstance()
+                                                val email = user?.email?.ifBlank { "creator@fitwalls.app" } ?: "creator@fitwalls.app"
+                                                val phone = phoneNumber.trim().ifBlank { user?.phoneNumber ?: "9999999999" }
+
+                                                val requestData = hashMapOf(
                                                     "accountHolderName" to accountHolderName.trim(),
-                                                    "accountNumber" to accountNumber.trim(),
-                                                    "ifsc" to ifscCode.trim().uppercase()
+                                                    "bankAccountNumber" to accountNumber.trim(),
+                                                    "ifsc" to ifscCode.trim().uppercase(),
+                                                    "email" to email,
+                                                    "phone" to phone
                                                 )
-                                            }
-                                            val success = firestoreManager.savePaymentDetails(details)
-                                            isSavingPayment = false
-                                            if (success) {
-                                                Toast.makeText(context, "Payment details saved successfully!", Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                Toast.makeText(context, "Failed to save payment details", Toast.LENGTH_SHORT).show()
+
+                                                val result = functions.getHttpsCallable("createCreatorLinkedAccount")
+                                                    .call(requestData)
+                                                    .await()
+
+                                                val resultData = result.data as? Map<*, *>
+                                                val returnedAccountId = (resultData?.get("accountId")
+                                                    ?: resultData?.get("account_id")
+                                                    ?: resultData?.get("razorpayLinkedAccountId")
+                                                    ?: resultData?.get("id")) as? String
+                                                val returnedStatus = (resultData?.get("status") as? String)?.lowercase()
+
+                                                if (!returnedAccountId.isNullOrBlank()) {
+                                                    razorpayLinkedAccountId = returnedAccountId
+                                                }
+
+                                                if (returnedStatus == "verified" || returnedStatus == "active") {
+                                                    isVerified = true
+                                                    isVerificationPending = false
+                                                } else {
+                                                    isVerificationPending = true
+                                                    isVerified = false
+                                                }
+
+                                                firestoreManager.updateCreatorPayoutStatus(
+                                                    linkedAccountId = returnedAccountId ?: razorpayLinkedAccountId,
+                                                    payoutStatus = if (isVerified) "verified" else "pending",
+                                                    details = mapOf(
+                                                        "accountHolderName" to accountHolderName.trim(),
+                                                        "accountNumber" to accountNumber.trim(),
+                                                        "bankAccountNumber" to accountNumber.trim(),
+                                                        "ifsc" to ifscCode.trim().uppercase(),
+                                                        "phone" to phone,
+                                                        "email" to email
+                                                    )
+                                                )
+
+                                                submissionSuccessMessage = "Payment details submitted for verification"
+                                                Toast.makeText(context, "Payment details submitted for verification", Toast.LENGTH_LONG).show()
+                                            } catch (e: Exception) {
+                                                paymentErrorMessage = e.localizedMessage ?: e.message ?: "Failed to submit payment details. Please check your bank information and retry."
+                                                Toast.makeText(context, "Submission failed: $paymentErrorMessage", Toast.LENGTH_LONG).show()
+                                            } finally {
+                                                isSavingPayment = false
                                             }
                                         }
                                     },
@@ -362,8 +579,10 @@ fun AccountScreen(
                                 ) {
                                     if (isSavingPayment) {
                                         CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Submitting to Razorpay Route...")
                                     } else {
-                                        Text("Save Payment Details")
+                                        Text(if (isVerified || isVerificationPending) "Update Payment Details" else "Save Payment Details")
                                     }
                                 }
                             }

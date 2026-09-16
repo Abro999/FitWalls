@@ -43,8 +43,8 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
     val context = LocalContext.current
     val activity = context as? android.app.Activity
     
-    // TODO: Implement actual premium check. For now, stubbed to false.
-    val isPremiumUser = false
+    // Real premium check using Firestore
+    var isPremiumUser by remember { mutableStateOf(false) }
     
     var credits by remember { mutableIntStateOf(1) } // Start with 1 credit
     var mRewardedAd by remember { mutableStateOf<RewardedAd?>(null) }
@@ -74,7 +74,10 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
     }
     
     LaunchedEffect(Unit) {
-        loadRewardedAd()
+        isPremiumUser = firestoreManager.isPremiumMember()
+        if (!isPremiumUser) {
+            loadRewardedAd()
+        }
     }
     
     Scaffold(
@@ -136,11 +139,15 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
                 }
             }
             
-            Text("Available Credits: $credits", style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = if (isPremiumUser) "Available Credits: Unlimited (Premium Pass)" else "Available Credits: $credits",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isPremiumUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
             
             Button(
                 onClick = {
-                    if (prompt.isNotBlank() && credits > 0) {
+                    if (prompt.isNotBlank() && (credits > 0 || isPremiumUser)) {
                         isGenerating = true
                         error = null
                         savedSuccessfully = false
@@ -150,7 +157,9 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
                             val result = geminiManager.generateWallpaper(prompt)
                             result.onSuccess { base64 ->
                                 generatedBase64 = base64
-                                credits -= 1
+                                if (!isPremiumUser) {
+                                    credits -= 1
+                                }
                                 
                                 isSaving = true
                                 val success = firestoreManager.saveGeneratedWallpaper(base64, prompt, selectedCategory)
@@ -169,12 +178,12 @@ fun GeneratorScreen(onNavigateBack: () -> Unit) {
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !isGenerating && prompt.isNotBlank() && credits > 0
+                enabled = !isGenerating && prompt.isNotBlank() && (credits > 0 || isPremiumUser)
             ) {
                 if (isGenerating) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
                 } else {
-                    Text("Generate (1 Credit)")
+                    Text(if (isPremiumUser) "Generate (Premium Unlimited)" else "Generate (1 Credit)")
                 }
             }
             

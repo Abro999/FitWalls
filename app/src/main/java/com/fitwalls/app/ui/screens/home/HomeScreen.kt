@@ -1,9 +1,12 @@
 package com.fitwalls.app.ui.screens.home
 
+import android.app.Activity
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import com.fitwalls.app.R
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -13,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,13 +28,18 @@ import coil.compose.AsyncImage
 import com.fitwalls.app.data.FirestoreManager
 import com.fitwalls.app.data.Wallpaper
 import androidx.compose.ui.viewinterop.AndroidView
+import com.fitwalls.app.util.Constants
+import com.fitwalls.app.util.PaymentBus
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
+import com.google.firebase.auth.FirebaseAuth
+import com.razorpay.Checkout
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyItems
@@ -44,6 +53,8 @@ fun HomeScreen(
     onNavigateToPreview: (String) -> Unit,
     onNavigateToAccount: () -> Unit
 ) {
+    val context = LocalContext.current
+    val activity = context as? Activity
     val firestoreManager = remember { FirestoreManager() }
     var wallpapers by remember { mutableStateOf<List<Wallpaper>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -56,6 +67,8 @@ fun HomeScreen(
     }
     
     var userRole by remember { mutableStateOf<String?>("user") }
+    var isPremiumUser by remember { mutableStateOf(false) }
+    var isPurchasingPremium by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     
@@ -66,6 +79,7 @@ fun HomeScreen(
                 scope.launch {
                     wallpapers = firestoreManager.getWallpapers()
                     userRole = firestoreManager.getUserRole()
+                    isPremiumUser = firestoreManager.isPremiumMember()
                     isLoading = false
                 }
             }
@@ -76,9 +90,66 @@ fun HomeScreen(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
-    
-    // TODO: Implement actual premium check. For now, stubbed to false.
-    val isPremiumUser = false
+
+    // Listen for payment events (Premium Pass purchase)
+    LaunchedEffect(Unit) {
+        launch {
+            PaymentBus.paymentSuccessFlow.collect { paymentId ->
+                if (isPurchasingPremium || PaymentBus.pendingPaymentType == PaymentBus.TYPE_PREMIUM_PASS) {
+                    isPurchasingPremium = false
+                    PaymentBus.pendingPaymentType = null
+                    val marked = firestoreManager.markUserAsPremium()
+                    if (marked) {
+                        isPremiumUser = true
+                        Toast.makeText(
+                            context,
+                            "Premium Pass activated! All premium wallpapers unlocked and ads removed.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        Toast.makeText(context, "Payment received. Error updating profile.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        launch {
+            PaymentBus.paymentErrorFlow.collect { (code, response) ->
+                if (isPurchasingPremium) {
+                    isPurchasingPremium = false
+                    PaymentBus.pendingPaymentType = null
+                    Toast.makeText(context, "Payment failed or cancelled: $response", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    fun launchPremiumCheckout() {
+        if (activity == null) {
+            Toast.makeText(context, "Payment gateway unavailable", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val checkout = Checkout()
+        checkout.setKeyID(Constants.RAZORPAY_KEY_ID)
+        try {
+            val options = JSONObject()
+            options.put("name", "FitWalls")
+            options.put("description", "FitWalls Premium Lifetime Pass")
+            options.put("currency", "INR")
+            options.put("amount", Constants.PREMIUM_PASS_PRICE_PAISE)
+
+            val user = FirebaseAuth.getInstance().currentUser
+            user?.email?.let { options.put("prefill.email", it) }
+            user?.phoneNumber?.let { options.put("prefill.contact", it) }
+
+            isPurchasingPremium = true
+            PaymentBus.pendingPaymentType = PaymentBus.TYPE_PREMIUM_PASS
+            checkout.open(activity, options)
+        } catch (e: Exception) {
+            isPurchasingPremium = false
+            PaymentBus.pendingPaymentType = null
+            Toast.makeText(context, "Error opening payment gateway: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -123,6 +194,86 @@ fun HomeScreen(
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             } else {
                 Column(modifier = Modifier.fillMaxSize()) {
+                    if (!isPremiumUser) {
+                        Card(
+                            onClick = { launchPremiumCheckout() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(12.dp)
+                                    .fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.size(38.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.WorkspacePremium,
+                                                contentDescription = "Premium Pass",
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Unlock Premium — ₹${Constants.PREMIUM_PASS_PRICE_RUPEES}",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                        Text(
+                                            text = "All premium wallpapers, no ads",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                                        )
+                                    }
+                                }
+
+                                Button(
+                                    onClick = { launchPremiumCheckout() },
+                                    enabled = !isPurchasingPremium,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(36.dp)
+                                ) {
+                                    if (isPurchasingPremium) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Text(
+                                            "Unlock",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -218,10 +369,18 @@ fun WallpaperCard(wallpaper: Wallpaper, onClick: () -> Unit) {
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (wallpaper.pricingType == "Paid") "₹${wallpaper.price}" else "Free",
+                            text = when (wallpaper.pricingType) {
+                                "Paid" -> "₹${wallpaper.price}"
+                                "Premium-only" -> "Premium"
+                                else -> "Free"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = if (wallpaper.pricingType == "Paid") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                            color = when (wallpaper.pricingType) {
+                                "Paid" -> MaterialTheme.colorScheme.primary
+                                "Premium-only" -> MaterialTheme.colorScheme.tertiary
+                                else -> MaterialTheme.colorScheme.secondary
+                            }
                         )
                     }
                 }

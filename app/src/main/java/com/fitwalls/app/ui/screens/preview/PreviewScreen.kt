@@ -4,15 +4,19 @@ import android.app.Activity
 import android.app.WallpaperManager
 import android.graphics.drawable.BitmapDrawable
 import android.widget.Toast
+import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.ImageLoader
 import coil.compose.AsyncImage
@@ -24,9 +28,11 @@ import com.fitwalls.app.util.Constants
 import com.fitwalls.app.util.PaymentBus
 import com.fitwalls.app.util.AdManager
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.functions.FirebaseFunctions
 import com.razorpay.Checkout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -38,11 +44,10 @@ fun PreviewScreen(wallpaperId: String, onNavigateBack: () -> Unit) {
     var hasPurchased by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
     var isProcessingPayment by remember { mutableStateOf(false) }
+    var isPurchasingPremium by remember { mutableStateOf(false) }
     var showApplyDialog by remember { mutableStateOf(false) }
     var isApplying by remember { mutableStateOf(false) }
-    
-    // TODO: Implement actual premium check. For now, stubbed to false.
-    val isPremiumUser = false
+    var isPremiumUser by remember { mutableStateOf(false) }
     
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -59,10 +64,14 @@ fun PreviewScreen(wallpaperId: String, onNavigateBack: () -> Unit) {
                     .allowHardware(false)
                     .build()
                 val result = (loader.execute(request) as? SuccessResult)?.drawable
-                val bitmap = (result as? BitmapDrawable)?.bitmap
+                val bitmap = (result as? BitmapDrawable)?.bitmap ?: result?.toBitmap()
                 if (bitmap != null) {
                     val wm = WallpaperManager.getInstance(context)
-                    wm.setBitmap(bitmap, null, true, targetFlag)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                        wm.setBitmap(bitmap, null, true, targetFlag)
+                    } else {
+                        wm.setBitmap(bitmap)
+                    }
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "Wallpaper applied successfully!", Toast.LENGTH_SHORT).show()
                         showApplyDialog = false
@@ -86,6 +95,7 @@ fun PreviewScreen(wallpaperId: String, onNavigateBack: () -> Unit) {
     
     // Load wallpaper data and preload interstitial ad
     LaunchedEffect(wallpaperId) {
+        isPremiumUser = firestoreManager.isPremiumMember()
         AdManager.loadInterstitialAd(context, isPremiumUser)
         wallpaper = firestoreManager.getWallpaper(wallpaperId)
         if (wallpaper != null) {
@@ -98,28 +108,42 @@ fun PreviewScreen(wallpaperId: String, onNavigateBack: () -> Unit) {
     LaunchedEffect(Unit) {
         launch {
             PaymentBus.paymentSuccessFlow.collect { paymentId ->
-                isProcessingPayment = true
-                val wp = wallpaper
-                if (wp != null) {
-                    val success = firestoreManager.recordPurchase(
-                        wallpaperId = wp.id,
-                        creatorId = wp.creatorId,
-                        pricePaid = wp.price,
-                        razorpayPaymentId = paymentId
-                    )
+                if (isPurchasingPremium || PaymentBus.pendingPaymentType == PaymentBus.TYPE_PREMIUM_PASS) {
+                    isPurchasingPremium = false
+                    PaymentBus.pendingPaymentType = null
+                    val success = firestoreManager.markUserAsPremium()
                     if (success) {
-                        hasPurchased = true
-                        Toast.makeText(context, "Purchase Successful!", Toast.LENGTH_SHORT).show()
+                        isPremiumUser = true
+                        Toast.makeText(context, "Premium Pass activated! You can now apply this wallpaper.", Toast.LENGTH_LONG).show()
                     } else {
-                        Toast.makeText(context, "Error verifying purchase. Contact support.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Error activating premium. Please restart app.", Toast.LENGTH_LONG).show()
                     }
+                } else {
+                    isProcessingPayment = true
+                    val wp = wallpaper
+                    if (wp != null) {
+                        val success = firestoreManager.recordPurchase(
+                            wallpaperId = wp.id,
+                            creatorId = wp.creatorId,
+                            pricePaid = wp.price,
+                            razorpayPaymentId = paymentId
+                        )
+                        if (success) {
+                            hasPurchased = true
+                            Toast.makeText(context, "Purchase Successful!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Error verifying purchase. Contact support.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    isProcessingPayment = false
                 }
-                isProcessingPayment = false
             }
         }
         launch {
             PaymentBus.paymentErrorFlow.collect { (code, response) ->
                 isProcessingPayment = false
+                isPurchasingPremium = false
+                PaymentBus.pendingPaymentType = null
                 Toast.makeText(context, "Payment failed: $response", Toast.LENGTH_LONG).show()
             }
         }
@@ -162,15 +186,130 @@ fun PreviewScreen(wallpaperId: String, onNavigateBack: () -> Unit) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text(wp.title.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium)
-                            Text("By ${wp.creatorName}", style = MaterialTheme.typography.bodyMedium)
+                        Column(modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)) {
+                            Text(wp.title.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("By ${wp.creatorName}", style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                                if (wp.pricingType == "Premium-only") {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isPremiumUser) "PREMIUM (UNLOCKED)" else "PREMIUM",
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
                         }
                         
-                        if (wp.pricingType == "Paid" && !hasPurchased) {
+                        val isPaidLocked = wp.pricingType == "Paid" && !hasPurchased
+                        val isPremiumLocked = wp.pricingType == "Premium-only" && !isPremiumUser
+
+                        if (isPremiumLocked) {
                             Button(
                                 onClick = {
-                                    if (activity != null) {
+                                    if (activity == null) return@Button
+                                    val checkout = Checkout()
+                                    checkout.setKeyID(Constants.RAZORPAY_KEY_ID)
+                                    try {
+                                        val options = JSONObject()
+                                        options.put("name", "FitWalls")
+                                        options.put("description", "FitWalls Premium Lifetime Pass")
+                                        options.put("currency", "INR")
+                                        options.put("amount", Constants.PREMIUM_PASS_PRICE_PAISE)
+
+                                        val user = FirebaseAuth.getInstance().currentUser
+                                        user?.email?.let { options.put("prefill.email", it) }
+                                        user?.phoneNumber?.let { options.put("prefill.contact", it) }
+
+                                        isPurchasingPremium = true
+                                        PaymentBus.pendingPaymentType = PaymentBus.TYPE_PREMIUM_PASS
+                                        checkout.open(activity, options)
+                                    } catch (e: Exception) {
+                                        isPurchasingPremium = false
+                                        PaymentBus.pendingPaymentType = null
+                                        Toast.makeText(context, "Error opening payment gateway: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                enabled = !isPurchasingPremium
+                            ) {
+                                if (isPurchasingPremium) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
+                                } else {
+                                    Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Get Premium to unlock — ₹${Constants.PREMIUM_PASS_PRICE_RUPEES}")
+                                }
+                            }
+                        } else if (isPaidLocked) {
+                            Button(
+                                onClick = {
+                                    if (activity == null) return@Button
+
+                                    val isCreatorUpload = wp.creatorId != "admin" && wp.creatorId.isNotBlank()
+                                    val amountInPaise = (wp.price * 100).toInt()
+
+                                    if (isCreatorUpload) {
+                                        // Creator upload -> Call Cloud Function "createSplitOrder" for Razorpay Route split payment
+                                        scope.launch {
+                                            isProcessingPayment = true
+                                            try {
+                                                val functions = FirebaseFunctions.getInstance()
+                                                val requestData = hashMapOf(
+                                                    "wallpaperId" to wp.id,
+                                                    "amountInPaise" to amountInPaise
+                                                )
+                                                val result = functions.getHttpsCallable("createSplitOrder")
+                                                    .call(requestData)
+                                                    .await()
+
+                                                val resultData = result.data as? Map<*, *>
+                                                val orderId = (resultData?.get("orderId")
+                                                    ?: resultData?.get("order_id")
+                                                    ?: resultData?.get("id")) as? String
+
+                                                if (orderId.isNullOrBlank()) {
+                                                    isProcessingPayment = false
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Unable to create split order. Please try again.",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                    return@launch
+                                                }
+
+                                                val checkout = Checkout()
+                                                checkout.setKeyID(Constants.RAZORPAY_KEY_ID)
+                                                val options = JSONObject()
+                                                options.put("name", "FitWalls")
+                                                options.put("description", "Purchase ${wp.title}")
+                                                options.put("currency", "INR")
+                                                options.put("amount", amountInPaise)
+                                                options.put("order_id", orderId)
+
+                                                val user = FirebaseAuth.getInstance().currentUser
+                                                user?.email?.let {
+                                                    options.put("prefill.email", it)
+                                                }
+                                                user?.phoneNumber?.let {
+                                                    options.put("prefill.contact", it)
+                                                }
+
+                                                checkout.open(activity, options)
+                                            } catch (e: Exception) {
+                                                isProcessingPayment = false
+                                                val errorMsg = e.localizedMessage ?: e.message ?: "Failed to initiate payment"
+                                                Toast.makeText(context, "Payment error: $errorMsg", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    } else {
+                                        // Admin upload or direct checkout
                                         val checkout = Checkout()
                                         checkout.setKeyID(Constants.RAZORPAY_KEY_ID)
                                         try {
@@ -178,13 +317,13 @@ fun PreviewScreen(wallpaperId: String, onNavigateBack: () -> Unit) {
                                             options.put("name", "FitWalls")
                                             options.put("description", "Purchase ${wp.title}")
                                             options.put("currency", "INR")
-                                            options.put("amount", (wp.price * 100).toInt()) // paise
-                                            
+                                            options.put("amount", amountInPaise)
+
                                             val user = FirebaseAuth.getInstance().currentUser
                                             user?.email?.let {
                                                 options.put("prefill.email", it)
                                             }
-                                            
+
                                             isProcessingPayment = true
                                             checkout.open(activity, options)
                                         } catch (e: Exception) {
